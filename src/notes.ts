@@ -32,6 +32,17 @@ export function deleteNote(notes: Note[], id: number): Note[] {
   return notes.filter((n) => n.id !== id);
 }
 
+export function searchNotes(notes: Note[], query: string): Note[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) throw new NotesError("a search needs some text");
+  return notes.filter((n) => n.text.toLowerCase().includes(needle));
+}
+
+export function formatSearch(matches: Note[]): string {
+  if (matches.length === 0) return "No matching notes.";
+  return matches.map((n) => `${n.id}. ${n.text} (${n.created})`).join("\n");
+}
+
 export function formatList(notes: Note[]): string {
   if (notes.length === 0) return "No notes yet.";
   return notes.map((n) => `${n.id}. ${n.text} (${n.created})`).join("\n");

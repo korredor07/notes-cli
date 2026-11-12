@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run } from "../src/cli.ts";
-import { addNote, deleteNote, formatList, NotesError, type Note } from "../src/notes.ts";
+import { addNote, deleteNote, formatList, formatSearch, NotesError, searchNotes, type Note } from "../src/notes.ts";
 
 const DAY = "2026-11-06";
 const tmpFile = () => join(mkdtempSync(join(tmpdir(), "notes-")), "notes.json");
@@ -28,6 +28,68 @@ describe("notes", () => {
   it("formats a list", () => {
     expect(formatList([])).toBe("No notes yet.");
     expect(formatList(addNote([], "milk", DAY))).toBe("1. milk (2026-11-06)");
+  });
+});
+
+describe("search", () => {
+  const sample = (): Note[] => addNote(addNote(addNote([], "buy Milk", DAY), "call Ana", DAY), "MILK run", DAY);
+
+  it("returns only matching notes, case-insensitively, keeping ids and order", () => {
+    expect(searchNotes(sample(), "MILK").map((n) => n.id)).toEqual([1, 3]);
+    expect(searchNotes(sample(), "milk").map((n) => n.text)).toEqual(["buy Milk", "MILK run"]);
+    expect(searchNotes(sample(), "ana").map((n) => n.id)).toEqual([2]);
+  });
+
+  it("returns [] when nothing matches", () => {
+    expect(searchNotes(sample(), "zzz")).toEqual([]);
+  });
+
+  it("refuses empty or whitespace queries", () => {
+    expect(() => searchNotes(sample(), "")).toThrow(NotesError);
+    expect(() => searchNotes(sample(), "   ")).toThrow(NotesError);
+  });
+
+  it("formats search results", () => {
+    expect(formatSearch([])).toBe("No matching notes.");
+    expect(formatSearch(sample())).toBe(formatList(sample()));
+  });
+});
+
+describe("cli search", () => {
+  const seeded = () => {
+    const file = tmpFile();
+    run(["add", "buy", "milk"], file, DAY);
+    run(["add", "call", "Ana"], file, DAY);
+    return file;
+  };
+
+  it("finds notes case-insensitively", () => {
+    expect(run(["search", "MILK"], seeded(), DAY)).toEqual({ code: 0, out: "1. buy milk (2026-11-06)" });
+  });
+
+  it("joins multi-word queries", () => {
+    expect(run(["search", "buy", "milk"], seeded(), DAY).out).toBe("1. buy milk (2026-11-06)");
+  });
+
+  it("reports no match", () => {
+    expect(run(["search", "zzz"], seeded(), DAY)).toEqual({ code: 0, out: "No matching notes." });
+  });
+
+  it("errors without text", () => {
+    const res = run(["search"], seeded(), DAY);
+    expect(res.code).toBe(1);
+    expect(res.out).toMatch(/^error:/);
+  });
+
+  it("does not modify the notes", () => {
+    const file = seeded();
+    const before = run(["list"], file, DAY).out;
+    run(["search", "milk"], file, DAY);
+    expect(run(["list"], file, DAY).out).toBe(before);
+  });
+
+  it("mentions search in usage", () => {
+    expect(run(["fly"], tmpFile(), DAY).out).toContain("search");
   });
 });
 
