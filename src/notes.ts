@@ -1,5 +1,6 @@
 // Notes kept in a JSON file. Pure functions take and return note lists; only load/save touch disk.
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { styleText } from "node:util";
 
 export interface Note {
   id: number;
@@ -32,7 +33,13 @@ export function deleteNote(notes: Note[], id: number): Note[] {
   return notes.filter((n) => n.id !== id);
 }
 
-export function formatList(notes: Note[]): string {
+function paint(format: "gray" | "green", s: string, color: boolean): string {
+  return color ? styleText(format, s, { validateStream: false }) : s;
+}
+
+export function formatList(notes: Note[], color = false): string {
   if (notes.length === 0) return "No notes yet.";
-  return notes.map((n) => `${n.id}. ${n.text} (${n.created})`).join("\n");
+  return notes
+    .map((n) => `${paint("gray", String(n.id), color)}. ${paint("green", n.text, color)} (${n.created})`)
+    .join("\n");
 }

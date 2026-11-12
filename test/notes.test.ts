@@ -1,5 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { styleText } from "node:util";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run } from "../src/cli.ts";
@@ -28,6 +29,37 @@ describe("notes", () => {
   it("formats a list", () => {
     expect(formatList([])).toBe("No notes yet.");
     expect(formatList(addNote([], "milk", DAY))).toBe("1. milk (2026-11-06)");
+  });
+});
+
+const paint = (format: "gray" | "green", s: string) => styleText(format, s, { validateStream: false });
+const coloredLine = (n: Note) => `${paint("gray", String(n.id))}. ${paint("green", n.text)} (${n.created})`;
+
+describe("colored list", () => {
+  const two = addNote(addNote([], "milk", DAY), "eggs", DAY);
+
+  it("colors id gray and text green", () => {
+    expect(formatList(addNote([], "milk", DAY), true)).toBe(coloredLine({ id: 1, text: "milk", created: DAY }));
+  });
+
+  it("stays plain by default or when color is false", () => {
+    expect(formatList(two)).not.toContain("\x1b[");
+    expect(formatList(two, false)).toBe("1. milk (2026-11-06)\n2. eggs (2026-11-06)");
+  });
+
+  it("does not color the empty message", () => {
+    expect(formatList([], true)).toBe("No notes yet.");
+  });
+
+  it("colors every note in order", () => {
+    expect(formatList(two, true)).toBe(two.map(coloredLine).join("\n"));
+  });
+
+  it("run passes color through to list", () => {
+    const file = tmpFile();
+    run(["add", "milk"], file, DAY);
+    expect(run(["list"], file, DAY, true).out).toBe(coloredLine({ id: 1, text: "milk", created: DAY }));
+    expect(run(["list"], file, DAY).out).toBe("1. milk (2026-11-06)");
   });
 });
 
