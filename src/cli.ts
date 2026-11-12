@@ -1,23 +1,44 @@
 // notes add <text> | notes list | notes delete <id>. Run with: node src/cli.ts <command>
-import { addNote, deleteNote, formatList, loadNotes, NotesError, saveNotes } from "./notes.ts";
+import { addNote, deleteNote, filterByTag, formatList, loadNotes, NotesError, saveNotes, type Note } from "./notes.ts";
 
 export interface Result {
   code: number;
   out: string;
 }
 
-const USAGE = "usage: notes add <text> | notes list | notes delete <id>";
+const USAGE = "usage: notes add [--tag <t>]... <text> | notes list [--tag <t>] | notes delete <id>";
+
+function splitTags(args: string[]): { words: string[]; tags: string[] } {
+  const words: string[] = [];
+  const tags: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== "--tag") {
+      words.push(args[i]);
+      continue;
+    }
+    if (i + 1 >= args.length) throw new NotesError("--tag needs a value");
+    tags.push(args[++i]);
+  }
+  return { words, tags };
+}
+
+function listNotes(notes: Note[], rest: string[]): Result {
+  const { words, tags } = splitTags(rest);
+  if (words.length > 0 || tags.length > 1) return { code: 2, out: USAGE };
+  return { code: 0, out: formatList(tags.length ? filterByTag(notes, tags[0]) : notes) };
+}
 
 export function run(argv: string[], file: string, today: string): Result {
   const [command, ...rest] = argv;
   try {
     const notes = loadNotes(file);
     if (command === "add") {
-      const next = addNote(notes, rest.join(" "), today);
+      const { words, tags } = splitTags(rest);
+      const next = addNote(notes, words.join(" "), today, tags);
       saveNotes(file, next);
       return { code: 0, out: `Added note ${next[next.length - 1].id}.` };
     }
-    if (command === "list") return { code: 0, out: formatList(notes) };
+    if (command === "list") return listNotes(notes, rest);
     if (command === "delete") {
       saveNotes(file, deleteNote(notes, Number(rest[0])));
       return { code: 0, out: `Deleted note ${rest[0]}.` };
