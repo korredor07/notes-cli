@@ -1,9 +1,9 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { run } from "../src/cli.ts";
-import { addNote, deleteNote, formatList, NotesError, type Note } from "../src/notes.ts";
+import { addNote, deleteNote, formatList, NotesError, searchNotes, type Note } from "../src/notes.ts";
 
 const DAY = "2026-11-06";
 const tmpFile = () => join(mkdtempSync(join(tmpdir(), "notes-")), "notes.json");
@@ -28,6 +28,44 @@ describe("notes", () => {
   it("formats a list", () => {
     expect(formatList([])).toBe("No notes yet.");
     expect(formatList(addNote([], "milk", DAY))).toBe("1. milk (2026-11-06)");
+  });
+
+  const sample = (): Note[] => addNote(addNote(addNote([], "buy milk", DAY), "call mom", DAY), "milk oat", DAY);
+
+  it("finds substring matches in original order", () => {
+    const found = searchNotes(sample(), "milk");
+    expect(found.map((n) => n.text)).toEqual(["buy milk", "milk oat"]);
+  });
+
+  it("ignores case", () => {
+    expect(searchNotes(addNote([], "Buy MILK", DAY), "milk")).toHaveLength(1);
+    expect(searchNotes(sample(), "MiLk")).toHaveLength(2);
+  });
+
+  it("trims the query", () => {
+    expect(searchNotes(sample(), "  milk  ")).toEqual(searchNotes(sample(), "milk"));
+  });
+
+  it("matches multi-word queries as one phrase", () => {
+    const notes = addNote(addNote([], "buy milk", DAY), "milk, buy", DAY);
+    expect(searchNotes(notes, "buy milk").map((n) => n.text)).toEqual(["buy milk"]);
+  });
+
+  it("returns nothing when no note matches", () => {
+    expect(searchNotes(sample(), "zzz")).toEqual([]);
+  });
+
+  it("does not search ids or dates", () => {
+    const notes = addNote([], "call mom", DAY);
+    expect(searchNotes(notes, "2026")).toEqual([]);
+    expect(searchNotes(notes, "1")).toEqual([]);
+  });
+
+  it("does not change the input", () => {
+    const notes = sample();
+    const before = JSON.stringify(notes);
+    searchNotes(notes, "milk");
+    expect(JSON.stringify(notes)).toBe(before);
   });
 });
 
@@ -54,5 +92,44 @@ describe("cli", () => {
 
   it("prints usage for unknown commands", () => {
     expect(run(["fly"], tmpFile(), DAY).code).toBe(2);
+  });
+
+  const seeded = () => {
+    const file = tmpFile();
+    run(["add", "buy", "milk"], file, DAY);
+    run(["add", "call", "mom"], file, DAY);
+    return file;
+  };
+
+  it("prints search matches like list", () => {
+    expect(run(["search", "MILK"], seeded(), DAY)).toEqual({ code: 0, out: "1. buy milk (2026-11-06)" });
+  });
+
+  it("prints the no-match message", () => {
+    expect(run(["search", "zzz"], seeded(), DAY)).toEqual({ code: 0, out: "No matching notes." });
+  });
+
+  it("joins the words of the query", () => {
+    const file = seeded();
+    expect(run(["search", "buy", "milk"], file, DAY).out).toBe(run(["search", "buy milk"], file, DAY).out);
+  });
+
+  it("reports an empty query as usage", () => {
+    const file = seeded();
+    expect(run(["search"], file, DAY).code).toBe(2);
+    expect(run(["search", "   "], file, DAY).code).toBe(2);
+  });
+
+  it("does not write the file when searching", () => {
+    const file = seeded();
+    const before = readFileSync(file, "utf8");
+    run(["search", "milk"], file, DAY);
+    expect(readFileSync(file, "utf8")).toBe(before);
+  });
+
+  it("reports a broken notes file with exit code 1 when searching", () => {
+    const file = tmpFile();
+    writeFileSync(file, "{ not json");
+    expect(run(["search", "x"], file, DAY).code).toBe(1);
   });
 });
